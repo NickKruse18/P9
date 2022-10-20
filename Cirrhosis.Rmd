@@ -1,0 +1,88 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+1. Investigate to begin with the effect of prednison by considering estimates of the survival functions for the treatment groups and by performing a log-rank test.
+
+```{r}
+source("andersen-plot.R")
+library("survival")
+
+S = Surv(cirrhosis[,3],event = cirrhosis[,2],type = "right")
+survfit(S~V4,cirrhosis)
+plot(survfit(S~V4,cirrhosis),lty=c(1,2))
+survdiff(S ~ V4,cirrhosis)
+```
+
+2. Fit a Cox proportional model with all covariates (main effects) included.
+Perform a careful assessment of the fitted model (including “Andersen”
+plots). Also check whether there are any problematic issues with the
+covariates (use histograms, boxplots,...).
+```{r}
+cox.fit = coxph(S~strata(V4)+V5+V6+V7+V8,cirrhosis)
+cox.surv = survfit(cox.fit)
+andersen.plot(cox.surv)
+summary(cox.fit)
+coxsnell = survfit(Surv(cirrhosis$V4-residuals(cox.fit),cirrhosis$V4)~1)
+plot(log(coxsnell$time),log(-log(coxsnell$surv)))
+res.dev = residuals(cox.fit,type="deviance")
+{
+  boxplot(res.dev~cirrhosis[,4])
+  boxplot(res.dev~cirrhosis[,5])
+  boxplot(res.dev~cirrhosis[,6])
+  plot(cirrhosis[,7],res.dev)
+  plot(cirrhosis[,8],res.dev)
+  
+}
+
+dfbetas = residuals(cox.fit,type = "dfbetas")
+for(i in 1:4){
+  plot(res.dev,dfbetas[,i])
+}
+
+plot(cox.zph(cox.fit))
+
+```
+3. Within the framework of the fitted Cox regression model, test the null
+hypothesis of no effect of prednison treatment.
+```{r}
+andersen.plot(cox.surv)
+coxph(S~V4+V5+V6+V7+V8,cirrhosis)
+```
+
+
+4. Investigate whether some kind of transformations should be applied to
+the continuous covariates age and prothrombin. Here you can use martingale residuals, discretization of the covariates, comparison of models obtained with different transformations etc.
+```{r}
+cox.pro = coxph(S~V5+V6+V7,cirrhosis)
+summary(lm(residuals(cox.pro)~cirrhosis$V8))
+d = cirrhosis$V8^2
+summary(lm(residuals(cox.pro)~d))
+plot(cirrhosis$V8,residuals(cox.pro))
+
+cox.age = coxph(S~V5+V6+V8,cirrhosis)
+summary(lm(residuals(cox.age)~cirrhosis$V7))
+d = cirrhosis$V7^2
+summary(lm(residuals(cox.age)~d))
+plot(cirrhosis$V7,residuals(cox.age))
+```
+5. Investigate whether there are indications of effects of interaction between treatment and the other covariates (this is a kind of data mining/exploratory analysis).
+```{r}
+summary(lm(V6~V4,cirrhosis))
+summary(lm(V7~V4,cirrhosis))
+summary(lm(V8~V4,cirrhosis))
+coxph(S~V4+V5+V7,cirrhosis)
+```
+6. Give an estimate for the survival function for a prednison treated man,
+who at the start of the treatment was 57, had Ascites=little, and a
+prothrombin index equal to 85. What is the probability that he will
+survive to be 65 ?
+```{r}
+cox.pred = coxph(S~V5+V6+V7+V8,cirrhosis,subset=(V4==1))
+cox.pred$coefficients[1]
+plot(survfit(cox.pred)*cox.pred$coefficients[1])
+survfit(cox.pred)
+```
+
+

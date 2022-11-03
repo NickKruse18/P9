@@ -3,86 +3,158 @@ title: "R Notebook"
 output: html_notebook
 ---
 
-1. Investigate to begin with the effect of prednison by considering estimates of the survival functions for the treatment groups and by performing a log-rank test.
-
 ```{r}
 source("andersen-plot.R")
 library("survival")
+cirrhosis = read.table("D:/Aau/P9/Varighedsanalyse/Varighedsanalyse/cirrhosis.dat", quote="\"", comment.char="")
+```
 
+1. Consider which type of censoring takes place for this data set. Can you
+assume independent censoring ?
+Given the nature of the data it seems likely that there isn't independent censoring since a patient might opt out of the trial due to health problems.
+
+Under the assumption that the covariates effect the survival function. A rough test of independence between the survival rate and censor rate is to test if the censor rate also depends on the covariates.
+
+To do this only the censored patients are modelled with the censor time treated as the death time. This can now be seen as a new set of survival data. Fitting a Cox proportional hazard to it with the covariates, should give an estimate of the censor rate and if the Cox fit shows correlation with the covariates then it isn't independent as the survival function correlates with the same covariates.
+```{r}
+summary(coxph(Surv(cirrhosis[(cirrhosis[,2]==0),3],rep(1,sum(cirrhosis[,2]==0)))~V5+V6+V7+V8,cirrhosis[(cirrhosis[,2]==0),]))
+```
+The p-values are insignificant enough to suggest that the censor rate isn't dependent on the covariates, though Sex and Age are close.\\
+
+
+2. Investigate to begin with the effect of prednison by considering estimates of the survival functions for the treatment groups and by performing a log-rank test.\\
+
+```{r}
 S = Surv(cirrhosis[,3],event = cirrhosis[,2],type = "right")
 survfit(S~V4,cirrhosis)
-plot(survfit(S~V4,cirrhosis),lty=c(1,2))
+plot(survfit(S~V4,cirrhosis),lty=c(1,2),xlab="Days",ylab="Chance of Survival",main="Prednison vs Placebo")
+```
+The estimated survival function for Prednison (solid line) is close to the placebo (dashed line), with a slight improvement in survival rate between $1000$ and $3000$ days.\\ 
+
+```{r}
 survdiff(S ~ V4,cirrhosis)
 ```
+The log-rank test corroborates the little visual difference between the two survival functions, with a p value of $0.4$.\\
 
-2. Fit a Cox proportional model with all covariates (main effects) included.
-Perform a careful assessment of the fitted model (including “Andersen”
-plots). Also check whether there are any problematic issues with the
-covariates (use histograms, boxplots,...).
+
+3. Fit a Cox proportional model with all covariates (main effects) included. Perform a careful assessment of the fitted model (including “Andersen” plots). Also check whether there are any problematic issues with the covariates (use histograms, boxplots,...). Interpret the parameter estimates for the different covariates.\\
 ```{r}
 cox.fit = coxph(S~strata(V4)+V5+V6+V7+V8,cirrhosis)
+summary(cox.fit)
 cox.surv = survfit(cox.fit)
 andersen.plot(cox.surv)
-summary(cox.fit)
+```
+The covariates are definitely significant when considering p-values. The Andersen plot shows that hazard for the Prednison group is proportional to the control group.
+
+```{r}
 coxsnell = survfit(Surv(cirrhosis$V4-residuals(cox.fit),cirrhosis$V4)~1)
 plot(log(coxsnell$time),log(-log(coxsnell$surv)))
-res.dev = residuals(cox.fit,type="deviance")
-{
-  boxplot(res.dev~cirrhosis[,4])
-  boxplot(res.dev~cirrhosis[,5])
-  boxplot(res.dev~cirrhosis[,6])
-  plot(cirrhosis[,7],res.dev)
-  plot(cirrhosis[,8],res.dev)
-  
-}
-
-dfbetas = residuals(cox.fit,type = "dfbetas")
-for(i in 1:4){
-  plot(res.dev,dfbetas[,i])
-}
-
-plot(cox.zph(cox.fit))
-
+abline(a=0,b=1)
 ```
-3. Within the framework of the fitted Cox regression model, test the null
-hypothesis of no effect of prednison treatment.
+The Cox-Snell residuals should be close to the line which they seem.
+
+
 ```{r}
-andersen.plot(cox.surv)
-coxph(S~V4+V5+V6+V7+V8,cirrhosis)
+res.dev = residuals(cox.fit,type="deviance")
+boxplot(res.dev)
+hist(res.dev)
+```
+The deviance residuals should be approximately normally distributed and they are
+
+```{r}
+plot(cox.zph(cox.fit))
+```
+If the coefficients, $\beta$, are dependent on time, then the lines should significantly deviate from being flat. It seems only Ascites could have some time dependency however it seem insignificant enough to not pursue it.\\
+```{r}
+summary(cox.fit)
 ```
 
 
-4. Investigate whether some kind of transformations should be applied to
+The coefficients suggest men have a lower survival, which could be byproduct of the general fact that men having shorter lifespans. Age at treatment also lowers survival chance, which is a straight forward result.
+Ascites lowers survival chance, which seems appropriate since it is a symptom of cirrhosis. prothrombin increases survival chance, which is likewise appropriate since cirrhosis impedes production of clotting proteins.\\
+
+4. Within the framework of the fitted Cox regression model, test the null
+hypothesis of no effect of prednison treatment.
+
+In exercise 3. the Andersen plot suggested that Hazard functions for the Prednison group and the control group are proportional, which means treatment can well be included as a covariate.
+```{r}
+cox = coxph(S~V4+V5+V6+V7+V8,cirrhosis)
+summary(cox)
+```
+The p-value suggests that Prednison has an insignificant impact which agrees with the result of exercise 2 and the line's unit slope in the aforementioned Andersen plot.\\
+
+5. Investigate whether some kind of transformations should be applied to
 the continuous covariates age and prothrombin. Here you can use martingale residuals, discretization of the covariates, comparison of models obtained with different transformations etc.
 ```{r}
 cox.pro = coxph(S~V5+V6+V7,cirrhosis)
 summary(lm(residuals(cox.pro)~cirrhosis$V8))
+plot(cirrhosis$V8,residuals(cox.pro))
+```
+The Martingale residuals $r^M$ for age should approximately follow:
+$$
+r^M_i \approx a + b f(age_i)
+$$
+The linear fit of $r^M$ suggests that the identity function (linear impact) $f(x) = x$ is appropriate. The plot also doesn't suggest any obvious transformation.
+
+```{r}
 d = cirrhosis$V8^2
 summary(lm(residuals(cox.pro)~d))
-plot(cirrhosis$V8,residuals(cox.pro))
+```
+The introduction of a quadratic transformation has a worse p-value than the linear transformation, which suggests it is only significant because a quadratic transformation has correlation with a linear transform. Therefore it is assumed that a linear transformation (no transformation) is appropriate for the age covariate.
 
+
+```{r}
 cox.age = coxph(S~V5+V6+V8,cirrhosis)
 summary(lm(residuals(cox.age)~cirrhosis$V7))
-d = cirrhosis$V7^2
-summary(lm(residuals(cox.age)~d))
 plot(cirrhosis$V7,residuals(cox.age))
 ```
-5. Investigate whether there are indications of effects of interaction between treatment and the other covariates (this is a kind of data mining/exploratory analysis).
+The residuals for prothrombin seem to tell much the same story as for age with a definite linear impact and no obvious transformations from looking at the plot.
+
 ```{r}
-summary(lm(V6~V4,cirrhosis))
-summary(lm(V7~V4,cirrhosis))
-summary(lm(V8~V4,cirrhosis))
-coxph(S~V4+V5+V7,cirrhosis)
+d = cirrhosis$V7^2
+summary(lm(residuals(cox.age)~d))
 ```
-6. Give an estimate for the survival function for a prednison treated man,
+Again the quadratic transformation of prothrombin has a worse p-value, which again concludes that a linear transformation is appropriate.\\
+
+
+6. Investigate whether there are indications of effects of interaction between treatment and the other covariates (this is a kind of data mining/exploratory analysis).
+```{r}
+summary(lm(V5~V4,cirrhosis))$coefficients
+summary(lm(V6~V4,cirrhosis))$coefficients
+summary(lm(V7~V4,cirrhosis))$coefficients
+summary(lm(V8~V4,cirrhosis))$coefficients
+```
+Fitting a linear model to the Sex, Ascites, Age and Prothrombin covariates, shows no significant correlation. Obviously Prednison can't directly impact any of these covariates, since Ascites, Age and Prothrombin are measured before Prednison is even administered and Sex is measured at birth.\\
+
+However there could be some bias in who was given Prednison and if the bias was favored to particularly at risk covariates then the lackluster effect of the drug could be explained as the treated group being naturally more likely to die than the control.
+```{r}
+cor(cirrhosis[,4:8])
+coef(cox)
+```
+The covariance matrix of the covariates as seen above. Here a negative correlation means a covariate is generally (slighly) higher for the Prednison treated group, in the case of sex, negative means more men took the drug. This implies that slightly more men took the drug and they had more ascites where younger and had lower prothrombin, three out of four of those factors increase risk. The coefficients also showcase that both being male and having ascites are equivalent to being $10$ years older, so they are both significant covariates and their slightly higher prevalence in the drug group could suggest that they were naturally more at risk.\\
+
+
+7. Give an estimate for the survival function for a prednison treated man,
 who at the start of the treatment was 57, had Ascites=little, and a
 prothrombin index equal to 85. What is the probability that he will
 survive to be 65 ?
+First a Cox Proportional Hazard model is fitted to exclusively the Predison treated group
 ```{r}
 cox.pred = coxph(S~V5+V6+V7+V8,cirrhosis,subset=(V4==1))
 cox.pred$coefficients[1]
-plot(survfit(cox.pred)*cox.pred$coefficients[1])
-survfit(cox.pred)
+S.0 = survfit(cox.pred)
+```
+Then using that $S_z(t) = S_0(t)^{\exp(z^\top \beta)}$ where $z$ is the vector of covariates. The man's survival function is
+```{r}
+S.man = S.0$surv^(cox.pred$coefficients%*%c(1,1,57,85))
+plot(S.0$time,Surv.man,ylim=c(0,1),type = "l",xlab="",ylab="",main="Survival Function for 57 year old man with Prednison")
 ```
 
-
+For him to survive to $65$ he must live an addtional $8$ years or $2920$ days.
+```{r}
+S.0$time
+```
+By considering $S.0\$\text{time}$, it can be seen that that occurs between indices $193$ and $194$, therefore the chance of him surviving is around
+```{r}
+S.man[193]
+```

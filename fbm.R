@@ -6,5 +6,13 @@ library("somebm")
 
 FBM=fbm(hurst=0.2,n=1000)
 plot(FBM)
-d <- fbm(hurst=0.2, n=1000)
-plot(d
+
+
+library("rumidas")
+
+head(rv5)
+summary(rv5)
+plot(rv5)
+data=rv5
+
+

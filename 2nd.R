@@ -1,369 +1,354 @@
-library("quantmod")
-library("stats")
-library("hypergeo")
-library("microbenchmark")
 
-
-dBM = function(t,n){
-  return(matrix(rnorm(t*n),t,n)/sqrt(t))
-}
-
-HesVol = function(sigma,eta,dW){
-  t = length(dW[,1])
-  n = length(dW[1,])
-  V = matrix(sigma,t,n)
-  for(i1 in 1:t){
-    for(i2 in 1:n){
-      V[i1,i2] = V[i1,i2] + eta*sqrt(V[i1,i2])*dW[i1,i2]
-    }
-  }
-  return(V)
-}
-
-rBerVol = function(sigma,eta,H,t,n){
-  dW = dBM(t,n)
-  V = matrix(sigma,t,n)
-  v = matrix(sigma,t,n)
-  for(i1 in 1:t){
-    for(i2 in 1:i1){
-      gamma = eta*sqrt(2*H)*((i1-i2+1)/t)^(H-1/2)
-      for(i3 in 1:n){
-        V[i1,i3] = V[i1,i3] + V[i1,i3]*gamma*dW[i2,i3]
-      }
-    }
-  }
-  for(i2 in 1:t){
-    gamma = eta*sqrt(2*H)*((t-i2+1)/t)^(H-1/2)
-    for(i3 in 1:n){
-      v[i2,i3] = v[i2-(i2>1),i3] + v[i2-(i2>1),i3]*gamma*dW[i2,i3]
-    }
-  }
-  return(list(V,v,dW))
-}
-
-BSV = function(S0,mu,dt,sigma,dZ){
-  t = length(dZ[,1])
-  n = length(dZ[1,])
-  S = matrix(0,t,n)
-  for (i1 in 1:t){
-    for (i2 in 1:n){
-      S[i1,i2] = S[i1-(i1>1),i2] + (mu-sigma[i1,i2]/2)*dt + sqrt(sigma[i1,i2])*dZ[i1,i2]
-    }
-  }
-  S = S0*exp(S)
-  return(S)
-}
-
-CoVT = function(X,Y){
-  cov = rep(0,length(X[,1]))
-  for(i1 in 1:length(X[,1])){
-    cov[i1] = t(X[i1,])%*%Y[i1,]/length(X[1,])
-  }
-  return(cov)
-}
-
-PriceSurface = function(S,t,K){
-  Surface = matrix(0,length(t),length(K))
-  for(i1 in 1:length(t)){
-    for(i2 in 1:length(K)){
-      Surface[i1,i2] = mean((abs(S[t[i1],]-K[i2])+S[t[i1],]-K[i2])/2)
-    }
-  }
-  return(Surface)
-}
-
-FitPrice = function(S0,K,mu,P,tau,sigma0){
-  if (sigma0 == 0){
-    d1 = Inf
-    d2 = Inf
-  }
-  else{
-    d1 = (log(S0/K)+tau*(mu+sigma0^2/2))/(sigma0*sqrt(tau))
-    d2 = (log(S0/K)+tau*(mu-sigma0^2/2))/(sigma0*sqrt(tau))
-  }
-  price = pnorm(d1)*S0-pnorm(d2)*K*exp(-mu*tau)
-  return((price-P)^2)
-}
-
-ImpliedVol = function(S,tau,K,Surface,mu){
+ImpliedVol = function(S0,tau,K,Surface,mu,t){
   VolSurface = matrix(0,length(tau),length(K))
   for (i1 in 1:length(tau)){
     for (i2 in 1:length(K)){
-      VolSurface[i1,i2] = optimize(FitPrice,c(0,10), S0 = S, K = K[i2], P = Surface[i1,i2], mu = mu, tau = tau[i1])$minimum
+      if(Surface[i1,i2] == 0){ next }
+      VolSurface[i1,i2] = uniroot(FitPrice,c(-100,100), S0 = S0, K = K[i2], P = Surface[i1,i2], mu = mu, tau = tau[i1], t = t)$root
     }
   }
   return(VolSurface)
 }
 
-FitPowerLaw = function(Surface,start,end,tau,titel = ""){
-  if(end == 0){ y = Surface }
-  else{ y = Surface[,end] - Surface[,start] }
+OUFit = function(V,H,Tau,K,S0,n,t,Skew){
+  if(H[5] > 0.5){return(Inf)}
+  if(H[5] < 0){return(Inf)}
+  if(H[6] > 1){return(Inf)}
+  if(H[6] < -1){return(Inf)}
+  set.seed(2)
+  S = SampleOU(S0,H[1],H[2],H[3],H[4],H[5],H[6],n,t,Tau)
   
-  plot(tau,y,xlab = expression(tau),ylab=expression(psi(tau)),main = titel)
+  P = matrix(0,length(Tau),length(K))
+  
+  for(i in 1:length(Tau)){
+    P[i,] = Price(S[i,],K)
+  }
+  V.est = ImpliedVol(S0,Tau,K,P,0,t)
+  print(H)
+  print(sum((t(V.est)[V!=0]-V[V!=0])^2))
+  return(sum((t(V.est)[V!=0]-V[V!=0])^2)) #+100*sum((Skew - FitPowerLaw(Tau/t,abs((V.est[,11]-V.est[,6]))/(log(K[11])-log(K[6])),Plot=FALSE)[[1]])^2))
+}
+
+FitModel = function(V,H,Tau,K,S0,n,t,Skew,model = "BS"){
+  Model = optim(H,OUFit,V = V,Tau = Tau, K = K, S0 = S0, n = n, t = t, Skew = Skew,control = list(reltol=0.01))$par
+  return(Model)
+}
+
+EstimateVol = function(Data,S0,Tau,K,t){
+  Vol = matrix(0,length(K),length(Tau))
+  for(i1 in 1:length(Tau)){
+    for(i2 in 1:length(K)){
+      n = 0
+      for(i3 in 1:length(S0)){
+        if((S0[i3] != 0)&(Data[i3+length(S0)*(i2-1),i1] != 0)){
+          Vol[i2,i1] = Vol[i2,i1] + uniroot(FitPrice,c(-100,100), S0 = S0[i], K = K[i2], P = Data[i3+length(S0)*(i2-1),i1], mu = 0, tau = Tau[i1], t = t)$root
+          n = n + 1
+        }
+      }
+      Vol[i2,i1] = Vol[i2,i1] / (n + (n==0))
+    }
+  }
+  return(Vol)
+}
+
+Skew = function(Xl,Xh,S0,Tau,t,K){
+  Y = numeric(length(Tau))
+  for(j in 1:length(Tau)){
+    n = 0
+    for(i in 1:length(S0)){
+      if((S0[i] != 0)&(Xh[i,j] != 0)&(Xl[i,j] != 0)){
+        Y[j] = Y[j] + uniroot(FitPrice,c(0,100), S0 = S0[i], K = K[2], P = Xh[i,j], mu = 0, tau = Tau[j], t = t)$root
+        Y[j] = Y[j] - uniroot(FitPrice,c(0,100), S0 = S0[i], K = K[1], P = Xl[i,j], mu = 0, tau = Tau[j], t = t)$root
+        n = n + 1
+      }
+    }
+    Y[j] = Y[j] / (n+(n==0))
+  }
+  return(Y/(log(K[2])-log(K[1])))
+}
+
+FitPowerLaw = function(x,y,titel = "",Plot=TRUE){
+  if( Plot ){ plot(x,y,xlab = expression(tau),ylab=expression(psi(tau)),main = titel) }
   s = sign(mean(exp(-c(1:length(y))/2)*y))
   Y = y*s
-  X = cbind(1,log(tau[(Y>0)]))
-  lines(tau[(Y>0)],s*exp(X%*%solve(t(X)%*%X)%*%t(X)%*%log(Y[(Y>0)])))
+  X = cbind(1,log(x[(Y>0)]))
+  lines(x[(Y>0)],s*exp(X%*%solve(t(X)%*%X)%*%t(X)%*%log(Y[(Y>0)])))
   b = solve(t(X)%*%X)%*%t(X)%*%log(Y[(Y>0)])
-  return(c(exp(b[1])*s,b[2]))
+  return(list(c(exp(b[1])*s,b[2]),log(Y[(Y>0)])-X%*%solve(t(X)%*%X)%*%t(X)%*%log(Y[(Y>0)])))
+}
+
+FitPrice = function(S0,K,mu,P,tau,t,sigma0){
+  if (sigma0 == 0){
+    d1 = Inf
+    d2 = Inf
+  }
+  else{
+    d1 = (log(S0/K)+tau/t*(mu+sigma0^2/2))/(sigma0*sqrt(tau/t))
+    d2 = (log(S0/K)+tau/t*(mu-sigma0^2/2))/(sigma0*sqrt(tau/t))
+  }
+  price = pnorm(d1)*S0-pnorm(d2)*K*exp(-mu*tau/t)
+  return(price-P)
+}
+
+SampleOU = function(S0,Y0,lambda,theta,nu,H,rho,n,t,Tau){
+  time = Sys.time()
+  Sigma = matrix(0,t,n); dZ = matrix(0,t,n)
+  for(i in 1:n){ D = OU(Y0,lambda,theta,nu,H,t); Sigma[,i] = D[[1]]
+  dZ[,i] = rho*D[[2]]+sqrt(1-rho^2)*rnorm(t)/sqrt(t) }
+  Sigma = exp(Sigma)
+  S = BSV(S0,Sigma,dZ,Tau)
+  if(length(Tau)>1){
+    S = S*exp((-lm(log(S%*%rep(1,length(S[1,])))~Tau)$coefficients[2])*Tau%*%t(rep(1,n)))
+  }
+  else{S = S/mean(S)}
+  print(Sys.time()-time)
+  return(S)
 }
 
 
-ProcessOptions = function(D,date){
-  n = 0
-  for (i in 1:length(D)){
-    if (length(D[[i]]$calls[,1])==0){next}
-    if (difftime(D[[i]]$calls[1,4],paste(date," 02:00:00"))[[1]]>1000){next}
-    if (difftime(D[[i]]$calls[1,4],paste(date," 02:00:00"))[[1]] == 0){next}
-    n = n + length(D[[i]]$calls[,1])
+OU = function(Y0,lambda,theta,nu,H,t){
+  if(H == 0.5){ dW = rnorm(t)/sqrt(t) }
+  else{ D = fBm(H,t); dW = D[[1]]; dWW = D[[2]] }
+  Y = numeric(t); Y[1] = Y0
+  for(i in 1:t){
+    Y[i] = Y[i-(i>1)] - lambda*(Y[i-(i>1)]-theta)/t+nu*dW[i]
   }
-  Data = matrix(0,n,5)
-  i = 0
-  for (i1 in 1:length(D)){
-    if (length(D[[i1]]$calls[,1])==0){next}
-    if (difftime(D[[i1]]$calls[1,4],paste(date," 02:00:00"))[[1]]>1000){next}
-    if (difftime(D[[i1]]$calls[1,4],paste(date," 02:00:00"))[[1]] == 0){next}
-    for (i2 in 1:length(D[[i1]]$calls[,1])){
-      i = i + 1
-      Data[i,] = c(difftime(D[[i1]]$calls[i2,4],paste(date," 02:00:00"))[[1]],D[[i1]]$calls[i2,5],D[[i1]]$calls[i2,9],D[[i1]]$calls[i2,14],D[[i1]]$calls[i2,12])
-      Data[is.na(Data)] = 0
+  if(H<0.5){ return(list(Y,dWW)) }
+  else { return(list(Y,dW)) }
+}
+
+BSV = function(S0,sigma,dZ,Tau){
+  t = length(dZ[,1])
+  n = length(dZ[1,])
+  Tau = c(0,Tau)
+  S = matrix(0,length(Tau)-1,n)
+  for (i1 in 2:length(Tau)){
+    S[i1-1,] = S[i1-2+(i1==2),] + rep(1,Tau[i1]-Tau[i1-1])%*%(sigma[(Tau[i1-1]+1):Tau[i1],]*dZ[(Tau[i1-1]+1):Tau[i1],]
+                                                              - sigma[(Tau[i1-1]+1):Tau[i1],]^2/t/2)
+  }
+  S = S0*exp(S)
+  return(S)
+}
+
+Price = function(S,K){
+  price = numeric(length(K))
+  for(i in 1:length(K)){
+    price[i] = mean((abs(S-K[i])+S-K[i])/2)
+  }
+  return(price)
+}
+
+fBm = function(hurst,n){
+  n = 2*(n - 1)
+  r <- numeric(n+1)
+  r[1] <- 1
+  for (k in 1:n) r[k + 1] <- 0.5 * ((k + 1)^(2 * hurst) - 
+                                      2 * k^(2 * hurst) + (k - 1)^(2 * hurst))
+  r <- c(r, r[seq(length(r) - 1, 2)])
+  lambda <- Re((fft(r)))/(2 * n)
+  dW = Re(fft(sqrt(lambda) * (1+1i)*rnorm(2 * n)))[1:(n + 2)]
+  W <- n^(-hurst) * (dW[2*(1:(n%/%2+1))-1]+dW[2*(1:(n%/%2+1))])
+  return(list(W,dW[2*(1:(n%/%2+1))]/sqrt(n%/%2 + 1)))
+}
+
+fBmCov = function(H,t){
+  Cov = matrix(0,t,t)
+  for(i1 in 1:t){
+    Cov[i1,i1] = (i1/t)^(2*H)
+    if(i1 == t){next}
+    for(i2 in (i1+1):t){
+      Cov[i1,i2] = 1/2*((i1/t)^(2*H)+(i2/t)^(2*H)-abs((i1-i2)/t)^(2*H))
+      Cov[i2,i1] = 1/2*((i1/t)^(2*H)+(i2/t)^(2*H)-abs((i1-i2)/t)^(2*H))
     }
   }
-  return(Data)
+  return(Cov)
 }
 
-AddImpliedVol = function(Data,X,r){
-  Data = cbind(Data,0) 
-  for (i in 1:length(Data[,1])){
-    Data[i,length(Data[1,])] = optimize(FitPrice,c(0,1), S0 = X, K = Data[i,2],mu = r, P = Data[i,3],tau = Data[i,1])$minimum
+
+fBm2 = function (H, n,lambda=NA){
+  if(is.na(lambda[1])){
+    r <- numeric(n + 1)
+    r[1] <- 1
+    for (k in 1:n) r[k + 1] <- 0.5 * ((k + 1)^(2 * H) - 
+                                        2 * k^(2 * H) + (k - 1)^(2 * H))
+    r <- c(r, r[seq(length(r) - 1, 2)])
+    lambda <- Re((fft(r))/(2 * n))
   }
-  return(Data)
+  W <- fft(sqrt(lambda) * (rnorm(2 * n) * (1+1i)))
+  W <- n^(-H) * cumsum(Re(W[1:(n + 1)]))
+  return(W)
 }
 
-Uniques = function(X){
-  Xs = c()
-  for(i in X){
-    if (!(i %in% Xs)){ Xs = c(Xs,i)}
+ComparefBm = function(H,n,K){
+  t.Exact.K = numeric(length(K));  t.Circ.K = numeric(length(K))
+  Error.Exact.K = numeric(length(K));  Error.Circ.K = numeric(length(K))
+  for(j in 1:length(K)){
+    print(K[j])
+    Cov = fBmCov(H,K[j])
+    mat.Exact = matrix(0,K[j],K[j])
+    mat.Circ = matrix(0,K[j],K[j])
+    tCov = t(chol(Cov))
+    r <- numeric(K[j])
+    r[1] <- 1
+    for (k in 1:(K[j]-1)) r[k + 1] <- 0.5 * ((k + 1)^(2 * H) - 
+                                               2 * k^(2 * H) + (k - 1)^(2 * H))
+    r <- c(r, r[seq(length(r) - 1, 2)])
+    lambda <- Re((fft(r))/(2 * (K[j]-1)))
+    for(i in 1:n){
+      time = Sys.time()
+      W = tCov%*%rnorm(K[j])
+      t.Exact.K[j] = t.Exact.K[j] + (Sys.time() - time)[[1]]
+      mat.Exact = mat.Exact + W%*%t(W)
+      time = Sys.time()
+      W = fBm2(H,K[j]-1,lambda)
+      t.Circ.K[j] = t.Circ.K[j] + (Sys.time() - time)[[1]]
+      mat.Circ = mat.Circ + W%*%t(W)
+    }
+    Error.Exact.K[j] = sum((Cov-mat.Exact/n)^2)/(K[j]^2)
+    Error.Circ.K[j] = sum((Cov-mat.Circ/n)^2)/(K[j]^2)
   }
-  return(sort(Xs))
+  return(rbind(K,sqrt(rbind(t.Exact.K^2/n,Error.Exact.K,t.Circ.K^2/n,Error.Circ.K)/n)))
 }
 
-InterpolateSurface = function(X,Y,Z){
-  Xs = Uniques(X)
-  Ys = Uniques(Y)
-  Zs = matrix(0,length(Xs),length(Ys))
-  Zw = matrix(0,length(Xs),length(Ys))
-  W = matrix(0,2*length(Xs)-1,2*length(Ys)-1)
-  for (i1 in 1:(2*length(Xs)-1)){ for (i2 in 1:(2*length(Ys)-1)){ W[i1,i2] = exp(-(i1-length(Xs))^2/2-(i2-length(Ys))^2/2) } }
-  W[length(Xs),length(Ys)] = 2
-  for(i in 1:length(X)){
-    Xind = match(X[i],Xs)
-    Yind = match(Y[i],Ys)
-    Zw = Zw + W[(length(Xs)-Xind+1):(2*length(Xs)-Xind),(length(Ys)-Yind+1):(2*length(Ys)-Yind)]
-    Zs = Zs + Z[i]*W[(length(Xs)-Xind+1):(2*length(Xs)-Xind),(length(Ys)-Yind+1):(2*length(Ys)-Yind)]
+PriceError = function(Y0,lambda,theta,nu,H,rho,t,n=100000){
+  N = c(10,20,50,100,200,500,1000,2000,5000,10000)
+  M = numeric(length(N));  Mean = numeric(length(N));  Err = numeric(length(N))
+  Time = numeric(length(N)); Time.std = numeric(length(N));
+  for(i in 1:length(N)){
+    m = 0;  M1 = 0;  M2 = 0; T1 = 0; T2 = 0
+    print(N[i])
+    while(m<n/N[i]){
+      time = Sys.time()
+      val = Price(SampleOU(1,Y0,lambda,theta,nu,H,rho,N[i],t,t),1)
+      val = uniroot(FitPrice,c(0,100), S0 = 1, K = 1, P = val, mu = 0, tau = t, t = t)$root
+      time = (Sys.time() - time)[[1]]
+      m = m + 1;  M1 = M1 + val;  M2 = M2 + val^2;  T1 = T1 + time;  T2 = T2 + time^2
+    }
+    M[i] = m;  Mean[i] = M1/m;  Err[i] = sqrt(M2/m - M1^2/m^2);  Time[i] = T1/m; Time.std[i] = sqrt(T2/m-T1^2/m^2)
   }
-  persp(Xs,Ys,Zs/Zw,theta=120,phi=30)
-  return(list(Xs,Ys,Zs/Zw))
+  return(list(N,M,Mean,Err,Time,Time.std))
 }
 
-AssetVolatility = function(Asset,Source,X,date){
-  D = getOptionChain(Asset,Exp=NULL,src=Source)
-  
-  Data = ProcessOptions(D,date)
-  #Data = AddImpliedVol(Data,X,r/365)
-  Surface = InterpolateSurface(Data[,1],Data[,2],Data[,3])
-  Surface = InterpolateSurface(Data[,1],Data[,2],Data[,4])
-  
-  s = 1
-  for(i in (1:length(Surface[[2]]))){
-    if(Surface[[2]][i] > X){
-      s = i
-      break
+
+TestOU = function(Y0,lambda,theta,nu,dW,Type){
+  t = length(dW)
+  Y = numeric(t)
+  time = Sys.time()
+  if(Type=="Euler"){ Y[1] = Y0
+  for(i in 1:t){
+    Y[i] = Y[i-(i>1)] - lambda*(Y[i-(i>1)]-theta)/t+nu*dW[i]
+  }
+  }
+  else{
+    for(i in 1:t){
+      Y[i] = Y[i-(i>1)] + exp(lambda*i/t)*dW[i]
+    }
+    Y = nu*exp(-lambda*(1:t)/t)*Y + theta + (Y0-theta)*exp(-lambda*(1:t)/t)
+  }
+  return(list(Y,(Sys.time()-time)[[1]]))
+}
+
+
+CompareOU = function(Y0,lambda,theta,nu,H,t,n,K){
+  t.Exact = 0;  t.Exact.K = numeric(length(K))
+  t.Euler = 0;  t.Euler.K = numeric(length(K))
+  Error.Exact = 0;  Error.Exact.K = numeric(length(K))
+  Error.Euler = 0;  Error.Euler.K = numeric(length(K))
+  for(i in 1:n){
+    dW = fBm(H,t)[[1]]
+    OU.Exact = TestOU(Y0,lambda,theta,nu,dW,"Exact")
+    t.Exact = t.Exact + OU.Exact[[2]]
+    OU.Exact = OU.Exact[[1]]
+    OU.Euler = TestOU(Y0,lambda,theta,nu,dW,"Euler")
+    t.Euler = t.Euler + OU.Euler[[2]] 
+    OU.Euler = OU.Euler[[1]]
+    Error.Euler = Error.Euler + sum((OU.Exact-OU.Euler)^2)/t
+    for(j in 1:length(K)){
+      t.k = t%/%K[j]
+      dW.k = diff(c(0,cumsum(dW)[K[j]*(1:t.k)]))
+      OU.K = TestOU(Y0,lambda,theta,nu,dW.k,"Euler")
+      t.Euler.K[j] = t.Euler.K[j] + OU.K[[2]]
+      OU.K = OU.K[[1]]
+      Error.Euler.K[j] = Error.Euler.K[j] + sum((OU.Exact[K[j]*(1:t.k)]-OU.K)^2)/t.k
+      if(i == n){
+        plot((1:t.k)/t.k,OU.Exact[K[j]*(1:t.k)],type="l",xlab="t",ylab="Y",main=paste0("Euler-Maruyama, n = ",t.k));  lines((1:t.k)/t.k,OU.K,col="red") }
+      OU.K = TestOU(Y0,lambda,theta,nu,dW.k,"Exact")
+      t.Exact.K[j] = t.Exact.K[j] + OU.K[[2]]
+      OU.K = OU.K[[1]]
+      Error.Exact.K[j] = Error.Exact.K[j] + sum((OU.Exact[K[j]*(1:t.k)]-OU.K)^2)/t.k
+      if(i == n){
+        plot((1:t.k)/t.k,OU.Exact[K[j]*(1:t.k)],type="l",xlab="t",ylab="Y",main=paste0("Exact, n = ",t.k));  lines((1:t.k)/t.k,OU.K,col="red") }
     }
   }
-  print(FitPowerLaw(Surface[[3]],s-1+12,s+12,Surface[[1]]))
-  return(list(Data,cbind(Surface[[1]],Surface[[3]][,s+12]-Surface[[3]][,s-1+12]),X))
+  return(sqrt(rbind(c(t,t/K)^2*n,c(t.Exact,t.Exact.K)^2/n,c(Error.Exact,Error.Exact.K),c(t.Euler,t.Euler.K)^2/n,c(Error.Euler,Error.Euler.K))/n))
 }
 
-rBerVol2 = function(sigma,eta,H,t,n,k){
-  Y = matrix(sigma,t,n)
-  Sigma = matrix(1/t,k+1,k+1)
-  for(i in 2:(k+1)){
-    Sigma[i,i] = ((i-1)^(2*H)-(i-2)^(2*H))/((2*H)*t^(2*H))
-    Sigma[1,i] = ((i-1)^(H+1/2)-(i-2)^(H+1/2))/((H+1/2)*t^(H+1/2))
-    Sigma[i,1] = Sigma[1,i]
-    if(i == 2){next}
-    for(j in 2:(i-1)){
-      Sigma[i,j] = ((j-1)^(H+1/2)*(i-1)^(H-1/2)*Re(hypergeo(1/2-H,1,H+3/2,(j-1)/(i-1))))/((H+1/2)*t^(2*H))
-      Sigma[i,j] = Sigma[i,j] - ((j-2)^(H+1/2)*(i-2)^(H-1/2)*Re(hypergeo(1/2-H,1,H+3/2,(j-2)/(i-2))))/((H+1/2)*t^(2*H))
-      Sigma[j,i] = Sigma[i,j]
+CompareRFSV = function(S0,Y0,lambda,theta,nu,H,rho,K,n){
+  t.K = numeric(length(K))
+  Error.K = numeric(length(K))
+  for(i in 1:length(K)){
+    set.seed(2)
+    time = Sys.time()
+    S.k = SampleOU(S0,Y0,lambda,theta,nu,H,rho,n,K[i],1:K[i])
+    P.k = matrix(0,K[i],1)
+    for(j in 1:K[i]){ P.k[j,] = Price(S.k[j,],S0) }
+    t.K[i] = (Sys.time() - time)[[1]]
+    if(i == 1){ P = P.k; plot((1:K[i])/K[i],P,type="l",xlab="t",ylab="price",main="Prices for different step sizes");  next }
+    lines((1:K[i])/K[i],P.k,col=i)
+    Error.K[i] = Error.K[i] + sum((P[K[i-1]/K[i]*(1:K[i])]-P.k)^2)/K[i]
+    P = P.k
+  }
+  return(rbind(t.K,sqrt(Error.K)))
+}
+
+GetData = function(ticker,time,maturity,strikes){
+  #CvQbcdE7syVkOIP5dAqccpOeK2o0iup4
+  #CBQouP6k8C92g2XWhofZB5PCGgxI6lOk
+  API = paste0("https://api.polygon.io/v2/aggs/ticker/",ticker, "/range/1/minute/")
+  API = paste0(API,format(time,"%Y-%m-%d"),"/",format(time,"%Y-%m-%d"))
+  API = paste0(API,"?adjusted=true&sort=asc&limit=5000&apiKey=CBQouP6k8C92g2XWhofZB5PCGgxI6lOk")
+  raw = jsonlite::fromJSON(API)
+  Data = raw$results
+  minutes = Data$t/60000
+  Asset = numeric(minutes[length(minutes)]-minutes[1]+1)
+  Asset[minutes-minutes[1]+1] = Data$vw
+  center = minutes[1]-1+330
+  strikes = c(-5*(5:1)+5*floor(mean(Data$vw)/5),(5*floor(mean(Data$vw)/5)):(5*ceiling(mean(Data$vw)/5)),
+              5*ceiling(mean(Data$vw)/5)+5*(1:5))
+  print(strikes)
+  n = (minutes[length(minutes)]-240-center)
+  Data.Opt = matrix(0,length(strikes)*n,maturity)
+  Maturities = rep(FALSE,maturity)
+  for(i in 1:maturity){
+    I = time + i
+    if(weekdays(I) == "Saturday"){ next }
+    if(weekdays(I) == "Sunday"){ next }
+    Sys.sleep(12)
+    Data = APICall(ticker,I,5*floor(mean(Asset[minutes-minutes[1]+1])/5),time)
+    if(length(Data)>1){
+      Maturities[i] = TRUE
+      print(format(I,"%y%m%d"))
     }
-  }
-  Sigma = t(chol(Sigma))
-  set.seed(2)
-  dW = Sigma%*%matrix(rnorm((k+1)*t*n),k+1,t*n)
-  g = c(rep(0,k), (((k+1):t)/t)^(H-1/2),rep(0,t))
-  G = fft(g)
-  dWW = dW[2:(k+1),]
-  dW = dW[1,]
-  for(i in 2:k){
-    dWW[i,] = c(rep(0,i-1),dWW[i,1:(t*n-i+1)])
-  }
-  for(i1 in 1:(n-1)){
-    for(i2 in 2:k){
-      for(i3 in 1:(i2-1)){
-        dWW[i2,i1*t+i3] = 0
+    if(Maturities[i] == TRUE){
+      for(j in 1:length(strikes)){
+        Sys.sleep(12)
+        Data = APICall(ticker,I,strikes[j],time)
+        if(length(Data)>1){
+          Data.Opt[j*n-n+Data$t/60000-center,i] = Data$vw
+          print(strikes[j])
+        }
       }
     }
   }
-  V = matrix(rep(1,k)%*%dWW,t,n)
-  for(i in 1:n){
-    DW = fft(c(rep(0,t),dW[t*i-t+(1:t)]))
-    V[,i] = V[,i] + round(Re(fft(DW*G,inverse=TRUE)[(t+1):(2*t)])/t/2,9)
-  }
-  
-  
-  V = sigma*exp(eta*sqrt(2*H)*V-eta^2/2*(((1:t)/t)^(2*H))%*%t(rep(1,n)))
-  return(list(V,matrix(dW,t,n)))
+  return(list(Asset,(1:maturity)[Maturities],Data.Opt[,Maturities]))
 }
 
-ModelDelta = function(S0,K,mS,tau){
-  n = length(mS[1,])
-  t = length(mS[,1])
-  delta = mean(0.0002*mS[t,]/mS[tau,]+abs((S0+0.0001)*mS[t,]/mS[tau,]-K)-abs((S0-0.0001)*mS[t,]/mS[tau,]-K))/0.0004
-  return(delta)
-}
-
-CallOpt = function(S0,K,mS,tau){
-  n = length(mS[1,])
-  t = length(mS[,1])
-  return(mean(S0*S[t,]/S[tau,]-K+abs(S0*S[t,]/S[tau,]-K))/2)
-}
-
-Hedging = function(S,K,mS,tau){
-  n = length(mS[1,])
-  t = length(mS[,1])
-  Positions = rep(0,n)
-  Cost = rep(-CallOpt(mean(S[1,]),K,mS,1),n)
-  for(i1 in tau){
-    M = (0:99)*(max(S[i1,])-min(S[i1,]))/99+min(S[i1,])
-    Delta = rep(0,100)
-    for(i2 in 1:100){
-      Delta[i2] = ModelDelta(M[i2],K,mS,i1)
-    }
-    for(i2 in 1:n){
-      for(i3 in 1:100){ if(M[i3] > S[i1,i2]){ break } }
-      delta = Delta[i3-1] + (M[i3] - S[i1,i2])/(M[i3] - M[i3-1]) * (Delta[i3] - Delta[i3-1])
-      Cost[i2] = Cost[i2] - S[i1,i2]*(delta + Positions[i2])
-      Positions[i2] = -delta
-    }
-  }
-  for(i2 in 1:n){
-    Cost[i2] = Cost[i2] - S[t,i2]*Positions[i2] + max(0,S[t,i2]-K)
-  }
-  return(Cost)
-}
-
-rBerSurface = function(H,t,n,Tau,K){
-  sigma0 = H[1]
-  eta = H[2]
-  rho = H[4]
-  r = H[5]
-  S0 = H[6]
-  H = H[3]
-  B = rBerVol2(sigma0,eta,H,t,n,3)
-  dW = B[[2]]
-  B = B[[1]]
-  dZ = rho*dW+sqrt(1-rho^2)*dBM(t,n)
-  S = BSV(S0,r,1/t,B,dZ)
-  PSurface = PriceSurface(S,Tau,K)
-  return(PSurface)
-}
-
-BSSurface = function(H,t,n,Tau,K){
-  sigma = H[1]
-  r = H[2]
-  S0 = H[3]
-  dZ = dBM(t,n)
-  S = BSV(S0,r,1/t,matrix(sigma,t,n),dZ)
-  PSurface = PriceSurface(S,Tau,K)
-  return(PSurface)
-}
-
-PriceVal = function(S,t,K){
-  Surface = rep(0,length(t))
-  for(i in 1:length(t)){
-    Surface[i] = mean((abs(S[t[i],]-K[i])+S[t[i],]-K[i])/2)
-  }
-  return(Surface)
-}
-
-CleanData = function(Fit,SData){
-  Residuals = Fit-SData[,3]
-  lims = boxplot(Residuals)$stats[c(1,5)]
-  lims = c(min(lims[1],sort(Residuals)[floor(length(Residuals)*0.025)]),max(lims[2],sort(Residuals)[ceiling(length(Residuals)*0.975)]))
-  exclude = c()
-  for(i in 1:length(Residuals)){
-    if(Residuals[i] < lims[1]){
-      exclude = c(exclude,i)
-    }
-    if(Residuals[i] > lims[2]){
-      exclude = c(exclude,i)
-    }
-  }
-  return(SData[-exclude,])
-}
-
-OptBS = function(H,S0,t,n,SData,Est=FALSE){
-  print(H)
-  set.seed(2)
-  dZ = dBM(t,n)
-  S = BSV(S0,H[2],1/t,matrix(exp(H[1]),t,n),dZ)
-  PEst = PriceVal(S,SData[,1],SData[,2])
-  if(Est){return(PEst)}
-  else{return(sum((PEst-SData[,3])^2))}
-}
-
-OptrBer = function(H,S0,t,n,SData,Est=FALSE){
-  print(H)
-  if(abs(H[3])>6){ return(Inf) }
-  B = rBerVol2(exp(H[1]),H[2],0.5/(1+exp(H[3])),t,n,3)
-  dW = B[[2]]
-  B = B[[1]]
-  G = 2*1/(1+exp(H[4]))-1
-  dZ = G*dW+sqrt(1-G^2)*dBM(t,n)
-  S = BSV(S0,H[5],1/t,B,dZ)
-  
-  PEst = PriceVal(S,SData[,1],SData[,2])
-  if(Est){return(PEst)}
-  else{return(sum((PEst-SData[,3])^2))}
-}
-
-FitModel = function(H,S0,t,n,SData,model){
-  if (model == "BS"){
-    Model = optim(H,OptBS,S0=S0,t=t,n=n,SData=SData,control = list(maxit=100))
-    Fit = OptBS(Model$par,S0,t,n,SData,TRUE)
-    print(1)
-    SData.clean = CleanData(Fit,SData)
-    Model = optim(Model$par,OptBS,S0=S0,t=t,n=n,SData=SData.clean)
-    Fit = OptBS(Model$par,S0,t,n,SData.clean,TRUE)
-  }
-  else if (model == "rBer"){
-    Model = optim(H,OptrBer,S0=S0,t=t,n=n,SData=SData,control = list(maxit=100))
-    Fit = OptrBer(Model$par,S0,t,n,SData,TRUE)
-    print(1)
-    SData.clean = CleanData(Fit,SData)
-    Model = optim(Model$par,OptrBer,S0=S0,t=t,n=n,SData=SData.clean)
-    Fit = OptBS(Model$par,S0,t,n,SData.clean,TRUE)
-  }
-  else if (model == "Hes"){
-    Model = optim(H,OptHes,S0=S0,t=t,n=n,SData=SData,control = list(maxit=100))
-    Fit = OptHes(Model$par,S0,t,n,SData,TRUE)
-    print(1)
-    SData.clean = CleanData(Fit,SData)
-    Model = optim(Model$par,OptHes,S0=S0,t=t,n=n,SData=SData.clean)
-    Fit = OptBS(Model$par,S0,t,n,SData.clean,TRUE)
-  }
-  print(sqrt(Model$value/length(SData[,3]))/S0)
-  return(list(Model$par,Fit,SData.clean))
+APICall = function(ticker,I,price,time){
+  API.opt = paste0("https://api.polygon.io/v2/aggs/ticker/O:",ticker)
+  API.opt = paste0(API.opt,format(I,"%y%m%d"))
+  API.opt = paste0(API.opt,"C00",price,"000/range/1/minute/")
+  API.opt = paste0(API.opt,format(time,"%Y-%m-%d"),"/",format(time,"%Y-%m-%d"))
+  API.opt = paste0(API.opt,"?adjusted=true&sort=asc&limit=5000&apiKey=CBQouP6k8C92g2XWhofZB5PCGgxI6lOk")
+  raw = jsonlite::fromJSON(API.opt)
+  return(raw$results)
 }

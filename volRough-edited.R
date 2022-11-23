@@ -68,7 +68,7 @@ lines(log(1:20),log(fm.4),col=2)
 lines(log(1:20),log(fm.5),col=2)
 #In the plot above it looks like the the best fit of the fbm to the volatility process is for q equal to 2
 
-#best fit og fbm to volatility process
+#best fit of fbm to volatility process
 plot(log(1:20),log(mvol.3))
 lines(log(1:20),log(fm.3),col=2)
 lm(log(mvol.3)~log(1:20)) # -0.7540       0.2961
@@ -83,27 +83,35 @@ lm(log(hm)~log(1:20)) # -11.232        1.022
 #Heston model has a much steeper slope than the fbm and the intercept is also much more off than the fbm.
 #the scaling of the slope using Heston model is approximately 3.35*H
 
+#plotted together (not the best)
+plot(log(1:20),log(mvol.3),ylim=c(-12,2))
+lines(log(1:20),log(fm.3),col='red')
+lines(log(1:20),log(hm.3),col='blue')
 
+######## slope and concavity effect ################################
 q=c(1,1.5,2,2.5,3)
 fm.Hq.points = 0.15*q
-
+slopes=c(0.1449,0.2192,0.2961,0.3761,0.4594)
 
 plot(q,fm.Hq.points)
+points(q,slopes,col=2)
+lines(q,fm.Hq.points,col='blue')
+lines(q,slopes,col='red')
 
-lm(fm.Hq.points~q)
-lines(q,fm.Hq.points)
+hm.Hq.points=0.5*q
+plot(q,hm.Hq.points)
 
-estimates=c(mean(log(mvol.1)),mean(log(mvol.2)),mean(log(mvol.3)),mean(log(mvol.4)),mean(log(mvol.5)))
-estimates
-#prøv mean af alle hældningskonstanter
-mean()
+#plotted togetger (looks horrible)
+plot(q,fm.Hq.points,ylim=c(0.2,1.8))
+points(q,slopes,col=2)
+lines(q,fm.Hq.points,col='blue')
+lines(q,slopes,col='red')
+lines(q,hm.Hq.points)
+
 
 #h øger slope og multiplikatoren øger intercept i fBm
 
-#    -0.7564       0.2914 fbm hurst 0,15
-#    -0.7674       0.2956 fbm hurst 0,151
+#### volatility skew and volatility smile #####
 
-#   -11.232        1.0220 hm vol 0.5
 
-#  -0.7540       0.2961 mvol
 

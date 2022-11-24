@@ -1,0 +1,152 @@
+---
+title: 'Module 3: Exercises for binomial model'
+author: ""
+date: ""
+output: html_document
+---
+
+### Exercise 1 (solve by inserting code in the Rmd file)
+
+The following figure shows the likelihood and log-likelihood for the 
+binomial model when $n=10$ and $y=3$:
+```{r out.width="90%", fig.height=5, fig.width=12}
+lik <- function(parm, y, n){parm^y * (1 - parm)^(n - y)}
+loglik <- function(parm, y, n){y * log(parm) + (n - y) * log(1 - parm)}
+par(mfrow=c(1, 2), mar = c(3,3,3,1))
+n <- 10; y <- 3
+curve(lik(x, y, n), main = "Likelihood")
+abline(v = y/n, lty = 2, col = 2)
+curve(loglik(x, y, n), main = "Log-likelihood", ylim = c(-20, -5))
+abline(v = y/n, lty = 2, col = 2)
+```
+
+Redo the likelihood plot above for $n=20, y=6$, for $n=50, y=15$ and for $n=500, y=150$.
+
+```{r out.width="90%", fig.height=5, fig.width=12}
+lik <- function(parm, y, n){parm^y * (1 - parm)^(n - y)}
+loglik <- function(parm, y, n){y * log(parm) + (n - y) * log(1 - parm)}
+par(mfrow=c(1, 2), mar = c(3,3,3,1))
+n <- c(20,50,500); y <- c(6,15,150)
+for(i in 1:3){
+  curve(lik(x, y[i], n[i]), main = "Likelihood")
+  abline(v = y[i]/n[i], lty = 2, col = 2)
+  curve(loglik(x, y[i], n[i]), main = "Log-likelihood", ylim = c(-20, -5))
+  abline(v = y[i]/n[i], lty = 2, col = 2)
+}
+
+```
+
+More data more certainty
+
+
+### Exercise 2 (solve by hand with pen and paper)
+
+For the binomial model
+
+- Differentiate $l(\theta)$ to obtain $l'(\theta)$ and verify that the solution to $l'(\theta)=0$ is $\hat \theta= y/n$. 
+$$
+\frac{d}{d \theta} l(\theta) = \frac{d}{d \theta}\left(y \log \theta + (n - y) \log(1-\theta)\right) = \frac{y}{\theta}-\frac{n-y}{1-\theta} = \frac{y-n\theta}{\theta-\theta^2}
+$$
+That $\hat \theta$ solves this can be seen by inserting it in the numerator.
+
+**Only do the next two bullets if you have solved all other exercises (also Exercise 3):**
+
+- Differentiate $l'(\theta)$ to obtain $l''(\theta)$.
+$$
+\frac{d}{d \theta} l'(\theta) = \frac{d}{d \theta}\left(\frac{y}{\theta}-\frac{n-y}{1-\theta}\right) = -\frac{y}{\theta^2} - \frac{n-y}{(1-\theta)^2} = -\frac{y(1-\theta)^2+\theta^2(n-y)}{(\theta-\theta^2)^2}
+$$
+- For the MLE it generally holds that
+the variance of $\hat\theta$ is approximately
+$$
+\text{Var}(\hat\theta) \approx - 1 / l''(\hat\theta).
+$$
+Verify by a direct computation that this in fact results in the estimated variance
+found in the text:
+$$
+\hat\theta(1-\hat\theta)/n = y(n-y)/n^3.
+$$
+
+$$
+l''(\hat\theta) = -\frac{y(1-y/n)^2+(y/n)^2(n-y)}{(y/n-(y/n)^2)^2}  = -\frac{y-y^2/n}{(y/n-(y/n)^2)^2} = -\frac{y}{(y/n)^2(1-y/n)} = -\frac{n^3}{y(n-y)}
+$$
+The negative reciproc then gives the result.
+
+
+### Exercise 3 (solve by inserting code in the Rmd file)
+
+For the Bayesian example with discrete prior:
+
+1. Think about the effect data has on the posterior when compared to the prior.
+The posterior is going to be a weighted average between the data and the prior. As more data is collected the data start to weigh more.
+
+2. Repeat the computations (mean and variance of posterior) and plots but with
+$n=100,y=30$. Do the results surprise you?
+```{r out.width="90%", fig.height=5, fig.width=12}
+theta <- c(.1, .3, .5, .7, .9)
+prior <- c(0.10, 0.15, 0.25, 0.30, 0.20)
+n <- 100; y <- 30
+likval <- lik(theta, y, n)
+posterior <- likval * prior
+posterior <- posterior / sum( posterior )
+round(100*posterior, 3)
+par(mfrow=c(1,3), mar = c(3, 3, 3, 0.5))
+barplot(prior, main="prior", names.arg=theta, ylim = c(0, .55))
+barplot(likval, main="likelihood", names.arg=theta)
+barplot(posterior, main="posterior", names.arg=theta, ylim = c(0, .55))
+sum(theta * prior)
+sum(theta * posterior)
+sum(theta^2 * prior) - sum(theta * prior)^2
+sum(theta^2 * posterior) - sum(theta * posterior)^2
+```
+The data (likelihood) takes over the posterior, which is expected.
+
+3. Repeat the computations and plots for the case where the prior has a uniform
+   distribution (i.e. if all five values have prior probability $0.20$), and $n=10,y=3$. 
+   What is the "relationship" between the posterior and the likelihood in this case? 
+```{r out.width="90%", fig.height=5, fig.width=12}
+theta <- c(.1, .3, .5, .7, .9)
+prior <- c(0.20, 0.20, 0.20, 0.20, 0.20)
+n <- 10; y <- 3
+likval <- lik(theta, y, n)
+posterior <- likval * prior
+posterior <- posterior / sum( posterior )
+round(100*posterior, 3)
+par(mfrow=c(1,3), mar = c(3, 3, 3, 0.5))
+barplot(prior, main="prior", names.arg=theta, ylim = c(0, .55))
+barplot(likval, main="likelihood", names.arg=theta)
+barplot(posterior, main="posterior", names.arg=theta, ylim = c(0, .55))
+sum(theta * prior)
+sum(theta * posterior)
+sum(theta^2 * prior) - sum(theta * prior)^2
+sum(theta^2 * posterior) - sum(theta * posterior)^2
+```
+Since
+$$
+\pi(\theta \mid y) \propto \pi(y \mid \theta) \pi(\theta)
+$$
+when $\pi(\theta)$ is constant it becomes identical to the likelihood.
+
+4. Lastly, repeat the computations and plots for the case where
+   $\pi(0.1)=\pi(0.3)=\pi(0.5)=\pi(0.9)=0.01$ and $\pi(0.7)=0.96$ (still $n=10,y=3$).
+   Comment on the result. 
+```{r out.width="90%", fig.height=5, fig.width=12}
+theta <- c(.1, .3, .5, .7, .9)
+prior <- c(0.01, 0.01, 0.01, 0.96, 0.01)
+n <- 10; y <- 3
+likval <- lik(theta, y, n)
+posterior <- likval * prior
+posterior <- posterior / sum( posterior )
+round(100*posterior, 3)
+par(mfrow=c(1,3), mar = c(3, 3, 3, 0.5))
+barplot(prior, main="prior", names.arg=theta, ylim = c(0, .55))
+barplot(likval, main="likelihood", names.arg=theta)
+barplot(posterior, main="posterior", names.arg=theta, ylim = c(0, .55))
+sum(theta * prior)
+sum(theta * posterior)
+sum(theta^2 * prior) - sum(theta * prior)^2
+sum(theta^2 * posterior) - sum(theta * posterior)^2
+```
+Because the $n$ is small, the prior dominates the posterior, but $0.3$ has a clear presence, and the likelihood and prior are effectively competing for the best $\theta$.
+
+(55/27*110/27)/((55/27+110/27)^2*(55/27+110/27+1))
+

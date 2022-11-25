@@ -51,21 +51,47 @@ hm.3 = m.delta(2,hv,1:20)
 hm.4 = m.delta(2.5,hv,1:20)
 hm.5 = m.delta(3,hv,1:20)
 
+########## LM test ##################
+lm(log(mvol.1)~log(1:20))$coefficients # -0.6352747   0.1449026 
+lm(log(mvol.2)~log(1:20))$coefficients # -0.7398497   0.2192481 
+lm(log(mvol.3)~log(1:20))$coefficients # -0.7539825   0.2961300 
+lm(log(mvol.4)~log(1:20))$coefficients # -0.6954881   0.3760548 
+lm(log(mvol.5)~log(1:20))$coefficients # -0.5760885   0.4594152
+
+lm(log(fm.1)~log(1:20))$coefficients # -0.6046370   0.1455551
+lm(log(fm.2)~log(1:20))$coefficients # -0.7182084   0.2183343
+lm(log(fm.3)~log(1:20))$coefficients # -0.7563779   0.2913825
+lm(log(fm.4)~log(1:20))$coefficients # -0.7361408   0.3646410 
+lm(log(fm.5)~log(1:20))$coefficients # -0.6683289   0.4379853
+
+#Best fit of fBm to volatility process is for q=2 based on the LM test
 
 ########################################### Plots and fitting ############################################
-plot(log(1:20),log(mvol.5))
+plot(log(1:20),log(mvol.5),xlab = "log(Delta)", ylab = "log(m(q,Delta))")
 
-points(log(1:20),log(mvol.1),col=5)
-points(log(1:20),log(mvol.2),col=4)
-points(log(1:20),log(mvol.3),col=3)
-points(log(1:20),log(mvol.4),col=2)
+points(log(1:20),log(mvol.1),col="purple")
+points(log(1:20),log(mvol.2),col="blue")
+points(log(1:20),log(mvol.3),col="red")
+points(log(1:20),log(mvol.4),col="green")
 #points(log(1:20),log(mvol.5),col=6)
 
-lines(log(1:20),log(fm.1),col=2)
-lines(log(1:20),log(fm.2),col=2)
-lines(log(1:20),log(fm.3),col=2)
-lines(log(1:20),log(fm.4),col=2)
-lines(log(1:20),log(fm.5),col=2)
+#lines(log(1:20),log(1:20)*0.219-0.7398)
+#lines(log(1:20),log(1:20)*0.2961-0.7540)
+#lines(log(1:20),log(1:20)*0.376-0.695)
+#lines(log(1:20),log(1:20)*0.459-0.576)
+
+lines(log(1:20),log(fm.1),col="purple")
+lines(log(1:20),log(fm.2),col="blue")
+lines(log(1:20),log(fm.3),col="red")
+lines(log(1:20),log(fm.4),col="green")
+lines(log(1:20),log(fm.5),col="black")
+
+legend("topleft", inset=.05, title="q values", c("q=1","q=1.5","q=2", "q=2.5", "q=3"), 
+       col=c("purple","blue","red","green","black"),  lty=1:2, cex=0.8)
+
+
+
+
 #In the plot above it looks like the the best fit of the fbm to the volatility process is for q equal to 2
 
 #best fit of fbm to volatility process

@@ -3,6 +3,7 @@ library("somebm")
 library("rumidas")
 
 data=rv5
+plot(data,type="l")
 
 m.proces=function(q,delta,data){
   m=0
@@ -39,12 +40,12 @@ mvol.5=m.delta(3,data,1:20)
 HestonVol = function(V0,sigma,n){
   V = numeric(n); V[1] = V0
   for(i in 2:n){
-    V[i] = V[i-1] + sigma*sqrt(V[i-1])*rnorm(1)/sqrt(n)
+    V[i] = abs(V[i-1] + sigma*sqrt(V[i-1])*rnorm(1)/sqrt(n))
   }
   return(V)
 }
 
-hv = HestonVol(1,0.5,20000)
+hv = HestonVol(1,2,20000)
 hm.1 = m.delta(1,hv,1:20)
 hm.2 = m.delta(1.5,hv,1:20)
 hm.3 = m.delta(2,hv,1:20)
@@ -67,7 +68,7 @@ lm(log(fm.5)~log(1:20))$coefficients # -0.6683289   0.4379853
 #Best fit of fBm to volatility process is for q=2 based on the LM test
 
 ########################################### Plots and fitting ############################################
-plot(log(1:20),log(mvol.5),xlab = "log(Delta)", ylab = "log(m(q,Delta))")
+plot(log(1:20),log(mvol.5),xlab = expression(log(Delta)), ylab = expression(log(m(q,Delta))))
 
 points(log(1:20),log(mvol.1),col="purple")
 points(log(1:20),log(mvol.2),col="blue")
@@ -87,7 +88,7 @@ lines(log(1:20),log(fm.4),col="green")
 lines(log(1:20),log(fm.5),col="black")
 
 legend("topleft", inset=.05, title="q values", c("q=1","q=1.5","q=2", "q=2.5", "q=3"), 
-       col=c("purple","blue","red","green","black"),  lty=1:2, cex=0.8)
+       col=c("purple","blue","red","green","black"),  lty=1, cex=0.8)
 
 
 
@@ -110,9 +111,11 @@ lm(log(hm)~log(1:20)) # -11.232        1.022
 #the scaling of the slope using Heston model is approximately 3.35*H
 
 #plotted together (not the best)
-plot(log(1:20),log(mvol.3),ylim=c(-12,2))
+plot(log(1:20),log(mvol.3))
 lines(log(1:20),log(fm.3),col='red')
 lines(log(1:20),log(hm.3),col='blue')
+
+#We cna only change the Hetson model in the way it cus the vertical axis. We cannot change or manipulate with its slope.
 
 ######## slope and concavity effect ################################
 q=c(1,1.5,2,2.5,3)
@@ -135,9 +138,9 @@ lines(q,slopes,col='red')
 lines(q,hm.Hq.points)
 
 
-#h øger slope og multiplikatoren øger intercept i fBm
+#Hurst parameter øger slope og multiplikatoren øger intercept i fBm
 
-#### volatility skew and volatility smile #####
+
 
 
 

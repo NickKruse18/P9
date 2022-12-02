@@ -3,8 +3,8 @@ library("somebm")
 library("rumidas")
 
 data=rv5
-plot(data,type="l")
-
+plot(data,type="l",main="S&P 500 realized variance at 5-minutes",xlab="Days",ylab="Realized variance")
+#the high realized variance around 2200-2300 days was in the middle of the financial crisis.
 m.proces=function(q,delta,data){
   m=0
   for (i in 1:(length(data)-delta)) {
@@ -65,10 +65,16 @@ lm(log(fm.3)~log(1:20))$coefficients # -0.7563779   0.2913825
 lm(log(fm.4)~log(1:20))$coefficients # -0.7361408   0.3646410 
 lm(log(fm.5)~log(1:20))$coefficients # -0.6683289   0.4379853
 
+lm(log(hm.1)~log(1:20))$coefficients # -4.3453718   0.4960781
+lm(log(hm.2)~log(1:20))$coefficients # -6.2922501   0.7463593
+lm(log(hm.3)~log(1:20))$coefficients # -8.130987    1.000007 
+lm(log(hm.4)~log(1:20))$coefficients # -9.869690    1.258241
+lm(log(hm.5)~log(1:20))$coefficients # -11.507377    1.521664
+
 #Best fit of fBm to volatility process is for q=2 based on the LM test
 
 ########################################### Plots and fitting ############################################
-plot(log(1:20),log(mvol.5),xlab = expression(log(Delta)), ylab = expression(log(m(q,Delta))))
+plot(log(1:20),log(mvol.5),main="The log-volatility processes with fitted linear models",  xlab = expression(log(Delta)), ylab = expression(log(m(q,Delta))))
 
 points(log(1:20),log(mvol.1),col="purple")
 points(log(1:20),log(mvol.2),col="blue")

@@ -22,7 +22,8 @@ m.delta=function(q,data,delta){
 }
 
 #Fractional brownian motion
-fBm = fbm(hurst=0.15,20000)*3
+fBm.try = fbm(hurst=0.157,20000)
+fBm=fBm.try*3.2
 fm.1 = m.delta(1,exp(fBm),1:20)
 fm.2 = m.delta(1.5,exp(fBm),1:20)
 fm.3 = m.delta(2,exp(fBm),1:20)
@@ -101,11 +102,11 @@ legend("topleft", inset=.05, title="q values", c("q=1","q=1.5","q=2", "q=2.5", "
 #In the plot above it looks like the the best fit of the fbm to the volatility process is for q equal to 2
 
 ########## LM test ##################
-mlm1=lm(log(mvol.1)~log(1:20))$coefficients # -0.6352747   0.1449026 
-mlm2=lm(log(mvol.2)~log(1:20))$coefficients # -0.7398497   0.2192481 
-mlm3=lm(log(mvol.3)~log(1:20))$coefficients # -0.7539825   0.2961300 
-mlm4=lm(log(mvol.4)~log(1:20))$coefficients # -0.6954881   0.3760548 
-mlm5=lm(log(mvol.5)~log(1:20))$coefficients # -0.5760885   0.4594152
+lm(log(mvol.1)~log(1:20))$coefficients # -0.6352747   0.1449026 
+lm(log(mvol.2)~log(1:20))$coefficients # -0.7398497   0.2192481 
+lm(log(mvol.3)~log(1:20))$coefficients # -0.7539825   0.2961300 
+lm(log(mvol.4)~log(1:20))$coefficients # -0.6954881   0.3760548 
+lm(log(mvol.5)~log(1:20))$coefficients # -0.5760885   0.4594152
 
 lm(log(fm.1)~log(1:20))$coefficients # -0.6046370   0.1455551
 lm(log(fm.2)~log(1:20))$coefficients # -0.7182084   0.2183343
@@ -148,11 +149,11 @@ q=c(1,1.5,2,2.5,3)
 fm.Hq.points =0.15*q
 slopes=c(0.1449,0.2192,0.2961,0.3761,0.4594)
 
-lm(slopes~q)
+lm(slopes~q) # intercept=-0.01522 and H=0.15718
 
 plot(q,slopes,main="Slope of line for log-volatility process",ylab=expression(zeta))
 points(q,slopes,col='red')
-lines(q,-0.01522+0.15*q, col='blue') #just a try 
+lines(q,-0.01522+0.15718*q, col='blue') 
 lines(q,slopes,col='red')
 
 plot(q,slopes,main="Slope of line for log-volatility and fBm",ylab = "slope")

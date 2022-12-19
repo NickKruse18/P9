@@ -26,7 +26,7 @@ OUFit = function(V,H,Tau,K,S0,n,t,Skew){
   V.est = ImpliedVol(S0,Tau,K,P,0,t)
   print(H)
   print(sum((t(V.est)[V!=0]-V[V!=0])^2))
-  return(sum((t(V.est)[V!=0]-V[V!=0])^2)) #+100*sum((Skew - FitPowerLaw(Tau/t,abs((V.est[,11]-V.est[,6]))/(log(K[11])-log(K[6])),Plot=FALSE)[[1]])^2))
+  return(sum((t(V.est)[V!=0]-V[V!=0])^2)+10000*sum((Skew - FitPowerLaw(Tau/t,abs((V.est[,11]-V.est[,6]))/(log(K[11])-log(K[6])),Plot=FALSE)[[1]])^2))
 }
 
 FitModel = function(V,H,Tau,K,S0,n,t,Skew,model = "BS"){
@@ -69,9 +69,7 @@ Skew = function(Xl,Xh,S0,Tau,t,K){
 
 FitPowerLaw = function(x,y,titel = "",Plot=TRUE){
   if( Plot ){ plot(x,y,xlab = expression(tau),ylab=expression(psi(tau)),main = titel) }
-  s = sign(mean(exp(-c(1:length(y))/2)*y))
-  Y = y*s
-  X = cbind(1,log(x[(Y>0)]))
+  s = sign(mean(exp(-c(1:length(y))/2)*y));  Y = y*s;  X = cbind(1,log(x[(Y>0)]))
   lines(x[(Y>0)],s*exp(X%*%solve(t(X)%*%X)%*%t(X)%*%log(Y[(Y>0)])))
   b = solve(t(X)%*%X)%*%t(X)%*%log(Y[(Y>0)])
   return(list(c(exp(b[1])*s,b[2]),log(Y[(Y>0)])-X%*%solve(t(X)%*%X)%*%t(X)%*%log(Y[(Y>0)])))
@@ -98,7 +96,8 @@ SampleOU = function(S0,Y0,lambda,theta,nu,H,rho,n,t,Tau){
   Sigma = exp(Sigma)
   S = BSV(S0,Sigma,dZ,Tau)
   if(length(Tau)>1){
-    S = S*exp((-lm(log(S%*%rep(1,length(S[1,])))~Tau)$coefficients[2])*Tau%*%t(rep(1,n)))
+    sigma = lm(log(S%*%rep(1,length(S[1,])))~Tau)$coefficients[2]*Tau%*%t(rep(1,n))
+    S = S*exp(-sigma)
   }
   else{S = S/mean(S)}
   print(Sys.time()-time)
@@ -107,14 +106,27 @@ SampleOU = function(S0,Y0,lambda,theta,nu,H,rho,n,t,Tau){
 
 
 OU = function(Y0,lambda,theta,nu,H,t){
-  if(H == 0.5){ dW = rnorm(t)/sqrt(t) }
-  else{ D = fBm(H,t); dW = D[[1]]; dWW = D[[2]] }
+  if(H == 0.5){ dW = rnorm(t)/sqrt(t) }else{ D = fBm(H,t); dW = D[[1]]; dWW = D[[2]] }
   Y = numeric(t); Y[1] = Y0
-  for(i in 1:t){
-    Y[i] = Y[i-(i>1)] - lambda*(Y[i-(i>1)]-theta)/t+nu*dW[i]
-  }
+  for(i in 1:t){ Y[i] = Y[i-(i>1)] - lambda*(Y[i-(i>1)]-theta)/t+nu*dW[i] }
   if(H<0.5){ return(list(Y,dWW)) }
   else { return(list(Y,dW)) }
+}
+
+SampleHes = function(S0,V0,kappa,theta,xi,rho,n,t,Tau){
+  Sigma = matrix(0,t,n); dZ = matrix(0,t,n)
+  for(i in 1:n){ D = HesVol(V0,kappa,theta,xi,t); Sigma[,i] = D[[1]]
+  dZ[,i] = rho*D[[2]]+sqrt(1-rho^2)*rnorm(t)/sqrt(t) }
+  S = BSV(S0,Sigma,dZ,Tau)
+  sigma = lm(log(S%*%rep(1,length(S[1,])))~Tau)$coefficients[2]*Tau%*%t(rep(1,n))
+  S = S*exp(-sigma)
+  return(S)
+}
+
+HesVol = function(V0,kappa,theta,xi,t){
+  dW = rnorm(t)/sqrt(t);  V = numeric(t);  V[1] = V0
+  for(i in 1:t){ V[i] = abs(V[i-(i>1)] - kappa*(V[i-(i>1)]-theta)/t+xi*sqrt(V[i-(i>1)])*dW[i]) }
+  return(list(sqrt(V),dW))
 }
 
 BSV = function(S0,sigma,dZ,Tau){
@@ -124,7 +136,7 @@ BSV = function(S0,sigma,dZ,Tau){
   S = matrix(0,length(Tau)-1,n)
   for (i1 in 2:length(Tau)){
     S[i1-1,] = S[i1-2+(i1==2),] + rep(1,Tau[i1]-Tau[i1-1])%*%(sigma[(Tau[i1-1]+1):Tau[i1],]*dZ[(Tau[i1-1]+1):Tau[i1],]
-                                                              - sigma[(Tau[i1-1]+1):Tau[i1],]^2/t/2)
+                                                              - 0.5*sigma[(Tau[i1-1]+1):Tau[i1],]^2/t)
   }
   S = S0*exp(S)
   return(S)
@@ -220,13 +232,22 @@ PriceError = function(Y0,lambda,theta,nu,H,rho,t,n=100000){
     while(m<n/N[i]){
       time = Sys.time()
       val = Price(SampleOU(1,Y0,lambda,theta,nu,H,rho,N[i],t,t),1)
-      val = uniroot(FitPrice,c(0,100), S0 = 1, K = 1, P = val, mu = 0, tau = t, t = t)$root
+      #val = uniroot(FitPrice,c(0,100), S0 = 1, K = 1, P = val, mu = 0, tau = t, t = t)$root
       time = (Sys.time() - time)[[1]]
       m = m + 1;  M1 = M1 + val;  M2 = M2 + val^2;  T1 = T1 + time;  T2 = T2 + time^2
     }
     M[i] = m;  Mean[i] = M1/m;  Err[i] = sqrt(M2/m - M1^2/m^2);  Time[i] = T1/m; Time.std[i] = sqrt(T2/m-T1^2/m^2)
   }
   return(list(N,M,Mean,Err,Time,Time.std))
+}
+
+MCDist = function(Y0,lambda,theta,nu,H,rho,t){
+  val = numeric(100)
+  for(i in 1:100){
+    val[i] = Price(SampleOU(1,Y0,lambda,theta,nu,H,rho,10000,t,t),1)
+    print(i)
+  }
+  return(val)
 }
 
 
@@ -293,7 +314,7 @@ CompareRFSV = function(S0,Y0,lambda,theta,nu,H,rho,K,n){
     P.k = matrix(0,K[i],1)
     for(j in 1:K[i]){ P.k[j,] = Price(S.k[j,],S0) }
     t.K[i] = (Sys.time() - time)[[1]]
-    if(i == 1){ P = P.k; plot((1:K[i])/K[i],P,type="l",xlab="t",ylab="price",main="Prices for different step sizes");  next }
+    if(i == 1){ P = P.k; plot((1:K[i])/K[i],P,type="l",xlab="t",ylab="price",main="Prices for Different Step Sizes");  next }
     lines((1:K[i])/K[i],P.k,col=i)
     Error.K[i] = Error.K[i] + sum((P[K[i-1]/K[i]*(1:K[i])]-P.k)^2)/K[i]
     P = P.k
